@@ -1,14 +1,15 @@
+use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
 use std::collections::{HashMap, LinkedList};
 use nom::multi::fold_many0;
 use nom::{
-    bytes::complete::{tag, take_until},
+    bytes::complete::{tag, take_until, take_while1},
     branch::{alt},
     character::complete::{char, one_of, none_of, space0, space1, line_ending},
     number::complete::float,
     combinator::{map, value, eof},
     sequence::{separated_pair, delimited, preceded, terminated},
-    multi::separated_list1,
+    multi::{separated_list0, separated_list1, many1},
     IResult,
     Parser,
 };
@@ -49,6 +50,59 @@ pub enum SExp {
     Quoted(Quoted)
 }
 
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ans: String = match self {
+            Literal::Nil => "nil".to_string(),
+            Literal::Bool(b) => b.to_string(),
+            Literal::Num(Number(x)) => x.to_string(),
+            Literal::Char(c) => format!("{:?}", c),
+            Literal::Sym(s) => s.clone(),
+            Literal::Str(s) => format!("{:?}", s)
+        };
+        write!(f, "{}", ans)
+    }
+}
+
+impl fmt::Display for Quoted {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "'{}", match self {
+            Quoted::Sym(s) => s.clone(),
+            Quoted::List(lst) => iterable_to_string(lst)
+        })
+    }
+}
+
+impl fmt::Display for SExp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ans = match self {
+            SExp::Literal(literal) => literal.to_string(),
+            SExp::Quoted(x) => x.to_string(),
+            SExp::List(lst) => format!("({})", iterable_to_string(lst)),
+            SExp::Array(vec) => format!("[{}]", iterable_to_string(vec)),
+            SExp::Dict(dict) => dict_to_string(dict)
+        };
+        write!(f, "{}", ans)
+    }
+}
+
+pub fn iterable_to_string<'a, I>(iter: I) -> String where I: IntoIterator<Item = &'a SExp> {
+    iter
+    .into_iter()
+    .map(|x| x.to_string())
+    .collect::<Vec<String>>()
+    .join(" ")
+}
+
+fn dict_to_string<K,V>(dict: &HashMap<K,V>) -> String where K: Display, V: Display {
+    let ans = dict
+                      .into_iter()
+                      .map(|(k,v)| format!("{} {}", k, v))
+                      .collect::<Vec<String>>()
+                      .join(", ");
+    format!("{{{}}}", ans)
+}
+
 pub fn comment(program: &str) -> IResult<&str, &str> {
     preceded(
         char(';'), 
@@ -67,7 +121,10 @@ fn comment_or_space(program: &str) -> IResult<&str, &str> {
 }
 
 fn symbol(program: &str) -> IResult<&str, String> {
-    map(none_of(" '\"`@~()[]{}"), String::from)(program)
+    map(
+        take_while1(|c| !" '\"`@~()[]{}".contains(c)), 
+        String::from
+    )(program)
 }
 
 fn character(program: &str) -> IResult<&str, char> {
@@ -102,28 +159,31 @@ fn string_literal(program: &str) -> IResult<&str, String> {
     )(program)
 }
 
-fn comma_or_space(program: &str) -> IResult<&str, &str> {
-    alt((
-        preceded(char(','), space0),
-        space1
-    ))(program)
+pub fn comma_or_space(program: &str) -> IResult<&str, ()> {
+    value(
+        (),
+        alt((
+            delimited(space0, tag(","), space0),
+            space1
+        ))
+    )(program)
 }
 
 fn list(program: &str) -> IResult<&str, LinkedList<SExp>> {
     delimited(
         char('('),
         map(
-            separated_list1(comma_or_space, sexp), 
+            multi_sexp, 
             |lst| lst.into_iter().collect()
         ),
         char(')')
     )(program)
 }
 
-fn array(program: &str) -> IResult<&str, Vec<SExp>> {
+pub fn array(program: &str) -> IResult<&str, Vec<SExp>> {
     delimited(
         char ('['), 
-        separated_list1(comma_or_space, sexp),
+        multi_sexp,
         char(']')
     )(program)
 }
@@ -146,7 +206,7 @@ fn dict(program: &str) -> IResult<&str, HashMap<Literal, SExp>> {
     )(program)
 }
 
-fn literal(program: &str) -> IResult<&str, Literal> {
+pub fn literal(program: &str) -> IResult<&str, Literal> {
     alt((
         value(Literal::Nil, tag("nil")),
         value(Literal::Bool(true), tag("true")),
@@ -169,7 +229,7 @@ fn quoted(program: &str) -> IResult<&str, Quoted> {
 }
 
 pub fn sexp(program: &str) -> IResult<&str, SExp> {
-    delimited(
+    preceded(
         comment_or_space,
         alt((
             map(literal, SExp::Literal),
@@ -177,7 +237,14 @@ pub fn sexp(program: &str) -> IResult<&str, SExp> {
             map(array, SExp::Array),
             map(dict, SExp::Dict),
             map(quoted, SExp::Quoted)
-        )),
-        comment_or_space
+        ))
+    )(program)
+}
+
+pub fn multi_sexp(program: &str) -> IResult<&str, Vec<SExp>> {
+    separated_list0(
+        comma_or_space,
+         //map(literal, SExp::Literal)
+         sexp
     )(program)
 }

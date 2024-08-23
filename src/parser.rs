@@ -4,17 +4,17 @@ use nom::multi::fold_many0;
 use nom::{
     bytes::complete::{tag, take_while_m_n},
     branch::{alt},
-    character::complete::{alpha1, char, one_of, none_of, space1},
+    character::complete::{char, one_of, none_of, space0, space1},
     number::complete::float,
     combinator::{map, value},
-    sequence::{Tuple, delimited, preceded},
+    sequence::{separated_pair, delimited, preceded},
     multi::separated_list1,
     IResult,
     Parser,
 };
 
 #[derive(Debug, PartialEq, Clone)]
-struct Number(f32);
+pub struct Number(f32);
 
 impl Eq for Number {}
 
@@ -25,7 +25,7 @@ impl Hash for Number {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-enum Literal {
+pub enum Literal {
     Nil,
     Bool(bool),
     Num(Number),
@@ -35,7 +35,7 @@ enum Literal {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-enum Quoted {
+pub enum Quoted {
     Sym(String),
     List(LinkedList<SExp>)
 }
@@ -85,11 +85,18 @@ fn string_literal(program: &str) -> IResult<&str, String> {
     )(program)
 }
 
+fn comma_or_space(program: &str) -> IResult<&str, &str> {
+    alt((
+        preceded(char(','), space0),
+        space1
+    ))(program)
+}
+
 fn list(program: &str) -> IResult<&str, LinkedList<SExp>> {
     delimited(
         char('('),
         map(
-            separated_list1(space1, sexp), 
+            separated_list1(comma_or_space, sexp), 
             |lst| lst.into_iter().collect()
         ),
         char(')')
@@ -99,8 +106,26 @@ fn list(program: &str) -> IResult<&str, LinkedList<SExp>> {
 fn array(program: &str) -> IResult<&str, Vec<SExp>> {
     delimited(
         char ('['), 
-        separated_list1(space1, sexp),
+        separated_list1(comma_or_space, sexp),
         char(']')
+    )(program)
+}
+
+fn dict(program: &str) -> IResult<&str, HashMap<Literal, SExp>> {
+    delimited(
+        char('{'),
+        map(
+            separated_list1(
+                comma_or_space,
+                separated_pair(
+                    literal,
+                    space1,
+                    sexp
+                )
+            ),
+            |tuples| tuples.into_iter().collect()
+        ),
+        char('}')
     )(program)
 }
 
@@ -131,6 +156,7 @@ pub fn sexp(program: &str) -> IResult<&str, SExp> {
         map(literal, SExp::Literal),
         map(list, SExp::List),
         map(array, SExp::Array),
+        map(dict, SExp::Dict),
         map(quoted, SExp::Quoted)
     ))(program)
 }

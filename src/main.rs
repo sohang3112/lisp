@@ -8,6 +8,6 @@ use parser::{SExp, sexp};
 // }
 
 fn main() {
-    let ast = sexp("{'a' 1 'b' 2}");
+    let ast = parser::sexp(";comment\nnil");
     println!("{:?}", ast)
 }

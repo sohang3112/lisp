@@ -2,12 +2,12 @@ use std::hash::{Hash, Hasher};
 use std::collections::{HashMap, LinkedList};
 use nom::multi::fold_many0;
 use nom::{
-    bytes::complete::{tag, take_while_m_n},
+    bytes::complete::{tag, take_until},
     branch::{alt},
-    character::complete::{char, one_of, none_of, space0, space1},
+    character::complete::{char, one_of, none_of, space0, space1, line_ending},
     number::complete::float,
-    combinator::{map, value},
-    sequence::{separated_pair, delimited, preceded},
+    combinator::{map, value, eof},
+    sequence::{separated_pair, delimited, preceded, terminated},
     multi::separated_list1,
     IResult,
     Parser,
@@ -47,6 +47,23 @@ pub enum SExp {
     Array(Vec<SExp>),
     Dict(HashMap<Literal, SExp>),
     Quoted(Quoted)
+}
+
+pub fn comment(program: &str) -> IResult<&str, &str> {
+    preceded(
+        char(';'), 
+        terminated(
+            take_until("\n"), 
+            alt((line_ending, eof))
+        )
+    )(program)
+}
+
+fn comment_or_space(program: &str) -> IResult<&str, &str> {
+    alt((
+        comment,
+        space0
+    ))(program)
 }
 
 fn symbol(program: &str) -> IResult<&str, String> {
@@ -152,11 +169,15 @@ fn quoted(program: &str) -> IResult<&str, Quoted> {
 }
 
 pub fn sexp(program: &str) -> IResult<&str, SExp> {
-    alt((
-        map(literal, SExp::Literal),
-        map(list, SExp::List),
-        map(array, SExp::Array),
-        map(dict, SExp::Dict),
-        map(quoted, SExp::Quoted)
-    ))(program)
+    delimited(
+        comment_or_space,
+        alt((
+            map(literal, SExp::Literal),
+            map(list, SExp::List),
+            map(array, SExp::Array),
+            map(dict, SExp::Dict),
+            map(quoted, SExp::Quoted)
+        )),
+        comment_or_space
+    )(program)
 }

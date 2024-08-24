@@ -1,17 +1,22 @@
-use std::fmt::{self, Display};
-use std::hash::{Hash, Hasher};
-use std::collections::{HashMap, LinkedList};
-use nom::multi::fold_many0;
+use std::{
+    fmt::{self, Display},
+    hash::{Hash, Hasher},
+    collections::{HashMap, LinkedList},
+    str::FromStr
+};
 use nom::{
     bytes::complete::{tag, take_until, take_while1},
-    branch::{alt},
+    branch::alt,
     character::complete::{char, one_of, none_of, space0, space1, line_ending},
     number::complete::float,
     combinator::{map, value, eof},
     sequence::{separated_pair, delimited, preceded, terminated},
-    multi::{separated_list0, separated_list1, many1},
+    multi::{separated_list0, separated_list1, fold_many0},
+    error::ErrorKind,
+    ErrorConvert,
     IResult,
     Parser,
+    Finish
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -85,6 +90,15 @@ impl fmt::Display for SExp {
         write!(f, "{}", ans)
     }
 }
+
+// impl FromStr for SExp {
+//     type Err = nom::Err<(String, ErrorKind)>;
+
+//     fn from_str(program: &str) -> Result<Self, Self::Err> {
+//         //sexp(program).finish().map_err(|err| err.map(|(s,kind)| (String::from(s),kind)))
+//         sexp(program).finish().map_err(|err| err.map(String::from))
+//     }
+// }
 
 pub fn iterable_to_string<'a, I>(iter: I) -> String where I: IntoIterator<Item = &'a SExp> {
     iter
@@ -247,4 +261,92 @@ pub fn multi_sexp(program: &str) -> IResult<&str, Vec<SExp>> {
          //map(literal, SExp::Literal)
          sexp
     )(program)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{
+        hash_map::RandomState,
+        HashMap, LinkedList
+    };
+
+    use quickcheck::{Arbitrary, Gen};
+    use quickcheck_macros::quickcheck;
+    use crate::parser::{SExp, Literal, Number, Quoted, sexp};
+
+    fn gen_range<'a, I>(g: &mut Gen, iter: I) -> I::Item where I: Iterator<Item: Clone> {
+        g.choose(Vec::from_iter(iter).as_slice()).unwrap().clone()
+    }
+
+    fn arbitary_string_no_whitespace(g: &mut Gen) -> String {
+        let size = gen_range(g, 0..100);
+        (0..size)
+            .map(|_| char::arbitrary(g))
+            .filter(|c| !c.is_whitespace())
+            .collect()
+    }
+
+    impl Arbitrary for Literal {
+        fn arbitrary(g: &mut Gen) -> Self {
+            match gen_range(g, 0..=5) {
+                0 => Literal::Nil,
+                1 => Literal::Bool(bool::arbitrary(g)),
+                2 => Literal::Char(char::arbitrary(g)),
+                3 => Literal::Num(Number(f32::arbitrary(g))),
+                4 => Literal::Str(String::arbitrary(g)),
+                5 => Literal::Sym(arbitary_string_no_whitespace(g)),
+                _ => unreachable!()
+            }
+        }
+
+        // fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        //     match self {
+        //         Literal::Char(c) => Literal::Char(c.shrink()),
+        //         Literal::Num(Number(x)) => Literal::Num(Number(x.shrink())),
+        //         Literal::Str(s) => Literal::Str(s.shrink()),
+        //         Literal::Sym(s) => Literal::Sym(s.shrink()),
+        //         x => x
+        //     }
+        // }
+    }
+
+    impl Arbitrary for Quoted {
+        fn arbitrary(g: &mut Gen) -> Self {
+            if bool::arbitrary(g) {
+                Quoted::Sym(arbitary_string_no_whitespace(g))
+            } else {
+                Quoted::List(LinkedList::arbitrary(g).into_iter().map(SExp::Literal).collect())
+            }
+        }
+    }
+
+    impl Arbitrary for SExp {
+        fn arbitrary(g: &mut Gen) -> Self {
+            match gen_range(g, 0..=4) {
+                0 => SExp::Literal(Literal::arbitrary(g)),
+                1 => SExp::Quoted(Quoted::arbitrary(g)),
+                2 => SExp::Array(Vec::arbitrary(g).into_iter().map(SExp::Literal).collect()),
+                3 => SExp::List(LinkedList::arbitrary(g).into_iter().map(SExp::Literal).collect()),
+                4 => { 
+                    let dict: HashMap<Literal, Literal> = HashMap::arbitrary(g);
+                    SExp::Dict(
+                        dict
+                            .into_iter()
+                            .map(|(k,v)| (k, SExp::Literal(v)))
+                            .collect())
+                },
+                _ => unreachable!()
+            }
+        }
+    }
+
+    #[quickcheck]
+    fn show_then_parse_is_identity(ast: SExp) -> bool {
+        let ast_str = ast.to_string();
+        let parsed = sexp(ast_str.as_str());
+        parsed == Ok(("", ast))
+    }
+
+    // quickcheck found a failing test case - saved in file parser_test_fail.txt
+    // But it's quite complicated test case - customize Arbitary shrink() for SExp to make it simpler
 }

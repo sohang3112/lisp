@@ -47,20 +47,20 @@ fn apply(globals: &VarMap, function_name: String, args: Vec<SExp>) -> SExp {
     }
 }
 
-fn eval(globals: &VarMap, sexp: SExp) -> Value {
-    match sexp {
-        SExp::List(lst) => match lst.pop_front() {
-            None => panic!("Empty function call"),
-            Some(func) => match eval(globals, func) {
-                SExp::Literal(Literal::Sym(sym)) => ,
-                x => 
-            }
-        },
-        SExp::Quoted(x) => x,
-        SExp::Literal(Literal::Sym(var)) => variable(globals, var),
-        _  => sexp
-    }
-}
+// fn eval(globals: &VarMap, sexp: SExp) -> Value {
+//     match sexp {
+//         SExp::List(lst) => match lst.pop_front() {
+//             None => panic!("Empty function call"),
+//             Some(func) => match eval(globals, func) {
+//                 SExp::Literal(Literal::Sym(sym)) => ,
+//                 x => 
+//             }
+//         },
+//         SExp::Quoted(x) => x,
+//         SExp::Literal(Literal::Sym(var)) => variable(globals, var),
+//         _  => sexp
+//     }
+// }
 
 fn main() {
     let mut globals: VarMap = HashMap::from([

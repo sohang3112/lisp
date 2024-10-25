@@ -2,12 +2,12 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     collections::{HashMap, LinkedList},
-    str::FromStr
+    str::{FromStr, from_utf8}
 };
 use nom::{
     bytes::complete::{tag, take_until, take_while1},
     branch::alt,
-    character::complete::{char, one_of, none_of, space0, space1, line_ending},
+    character::complete::{char, one_of, none_of, space0, space1, line_ending, u8},
     number::complete::float,
     combinator::{map, value, eof},
     sequence::{separated_pair, delimited, preceded, terminated},
@@ -53,6 +53,19 @@ pub enum SExp {
     Array(Vec<SExp>),
     Dict(HashMap<Literal, SExp>),
     Quoted(Quoted)
+}
+
+impl Into<bool> for Literal {
+    fn into(self) -> bool {
+        match self {
+            Literal::Nil => false,
+            Literal::Bool(b) => b,
+            Literal::Char(c) => c != '\0',
+            Literal::Num(Number(x)) => x != 0f32,
+            Literal::Str(s) => s != "",
+            Literal::Sym(_) => true
+        }
+    }
 }
 
 impl fmt::Display for Literal {
@@ -141,11 +154,21 @@ fn symbol(program: &str) -> IResult<&str, String> {
     )(program)
 }
 
+// fn parse_u8(program: &str) -> IResult<&str, u8> {
+//     let bytes = program.as_bytes();
+//     // let (rest, value) = u8(bytes).map_err(
+//     //     |err| err.map(|bs| from_utf8(bs).unwrap()))?;
+//     let (rest, value) = u8(bytes).map_err(|_| ())?;
+//     let rest = from_utf8(rest).unwrap();
+//     Ok((rest, value))
+// }
+
 fn character(program: &str) -> IResult<&str, char> {
     alt((
         preceded(
             char('\\'),
             alt((
+                u8.map(|d| d as char),
                 map(one_of(r#"nrt"\"#), |c| match c {
                     'n' => '\n',
                     'r' => '\r',
@@ -272,7 +295,7 @@ mod tests {
 
     use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
-    use crate::parser::{SExp, Literal, Number, Quoted, sexp};
+    use crate::parser::{SExp, Literal, Number, Quoted, sexp, literal, string_literal};
 
     fn gen_range<'a, I>(g: &mut Gen, iter: I) -> I::Item where I: Iterator<Item: Clone> {
         g.choose(Vec::from_iter(iter).as_slice()).unwrap().clone()
@@ -340,13 +363,20 @@ mod tests {
         }
     }
 
+    // Failing Test case - "\0"
     #[quickcheck]
-    fn show_then_parse_is_identity(ast: SExp) -> bool {
+    fn literal_string_show_then_parse_is_identity(str: String) -> bool {
+        let ast_str = Literal::Str(str.clone()).to_string();
+        let parsed = string_literal(ast_str.as_str());
+        parsed == Ok(("", str))
+    }
+
+    // quickcheck found a failing test case for sexp parsing - saved in file parser_test_fail.txt
+    // But it's quite complicated test case - customize Arbitary shrink() for SExp to make it simpler
+    #[quickcheck]
+    fn sexp_show_then_parse_is_identity(ast: SExp) -> bool {
         let ast_str = ast.to_string();
         let parsed = sexp(ast_str.as_str());
         parsed == Ok(("", ast))
     }
-
-    // quickcheck found a failing test case - saved in file parser_test_fail.txt
-    // But it's quite complicated test case - customize Arbitary shrink() for SExp to make it simpler
 }
